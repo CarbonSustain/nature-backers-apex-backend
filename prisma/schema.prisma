@@ -1,0 +1,180 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SDG {
+  id       Int          @id @default(autoincrement())
+  name     String       @unique
+  projects ProjectSDG[]
+}
+
+model Project {
+  id                       Int               @id @default(autoincrement())
+  created_at               DateTime          @default(now())
+  latitude                 Float?
+  longitude                Float?
+  primarySector            String?
+  projectMethodology       String?
+  projectName              String?
+  projectTypes             String?
+  proofPurpose             String?
+  secondarySector          String?
+  uniqueId                 String            @unique
+  verificationMethod       String?
+  consensusTimestamp       String?
+  status                   String?
+  impactAndRiskAssessments Json?
+  impactAndRiskSdgs        Json?
+  standards                Json?
+  CampaignProject          CampaignProject[]
+  sdgs                     ProjectSDG[]
+  votes                    Vote[]
+
+  @@unique([projectName, uniqueId])
+}
+
+model ProjectSDG {
+  projectId Int
+  sdgId     Int
+  project   Project @relation(fields: [projectId], references: [id])
+  sdg       SDG     @relation(fields: [sdgId], references: [id])
+
+  @@id([projectId, sdgId])
+}
+
+model Campaign {
+  id                 Int                  @id @default(autoincrement())
+  name               String
+  votingStyle        VotingStyle
+  startDate          DateTime
+  endDate            DateTime
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  emailBody          String?
+  emailSubject       String?
+  url                String?
+  campaignStatusId   Int
+  tx_hash            String?
+  campaignStatus     CampaignStatus       @relation(fields: [campaignStatusId], references: [id])
+  CampaignDepartment CampaignDepartment[]
+  CampaignProject    CampaignProject[]
+  votes              Vote[]
+
+  @@unique([name, startDate, endDate, votingStyle])
+}
+
+model CampaignProject {
+  id         Int      @id @default(autoincrement())
+  campaignId Int
+  projectId  Int
+  createdAt  DateTime @default(now())
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+  project    Project  @relation(fields: [projectId], references: [id])
+
+  @@unique([campaignId, projectId])
+}
+
+model CampaignDepartment {
+  id           Int        @id @default(autoincrement())
+  campaignId   Int
+  departmentId Int
+  createdAt    DateTime   @default(now())
+  campaign     Campaign   @relation(fields: [campaignId], references: [id])
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  @@unique([campaignId, departmentId])
+}
+
+model FilterCategory {
+  id        Int            @id @default(autoincrement())
+  name      String         @unique
+  label     String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  options   FilterOption[]
+}
+
+model FilterOption {
+  id               Int            @id @default(autoincrement())
+  value            String
+  label            String
+  filterCategoryId Int
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  filterCategory   FilterCategory @relation(fields: [filterCategoryId], references: [id])
+
+  @@unique([filterCategoryId, value])
+}
+
+model Department {
+  id                 Int                  @id @default(autoincrement())
+  name               String               @unique
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  CampaignDepartment CampaignDepartment[]
+  users              User[]
+}
+
+model Role {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+}
+
+model CampaignStatus {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  campaigns Campaign[]
+}
+
+model User {
+  id              Int         @id @default(autoincrement())
+  google_sub      String?     @unique
+  email_verified  Boolean     @default(false)
+  profile_picture String?
+  id_token        String?
+  id_token_expiry DateTime?
+  access_token    String?
+  refresh_token   String?
+  role_id         Int?
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @default(now())
+  departmentId    Int?
+  business_email  String      @unique
+  first_name      String
+  last_name       String
+  personal_email  String?
+  department      Department? @relation(fields: [departmentId], references: [id])
+  role            Role?       @relation(fields: [role_id], references: [id])
+  votes           Vote[]
+}
+
+model Vote {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  campaignId Int
+  voteData   Json?
+  createdAt  DateTime @default(now())
+  projectId  Int
+  vote_hash  String?
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+  project    Project  @relation(fields: [projectId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, campaignId])
+}
+
+enum VotingStyle {
+  TOKEN_BASED
+  STORY_FEATURE
+  THEMED_BADGES
+}

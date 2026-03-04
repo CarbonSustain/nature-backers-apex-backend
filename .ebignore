@@ -1,0 +1,57 @@
+# Node modules and dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Version control
+.git
+.gitignore
+
+# Tests and test configs
+test/
+*.spec.ts
+*.test.ts
+*.service.spec.ts
+jest.config.js
+jest-e2e.json
+test/jest-unit.json
+coverage/
+__tests__/
+
+# Local environment/config files
+.env
+.env.*
+
+# Editor/IDE files
+*.swp
+*.swo
+*.DS_Store
+.vscode
+.idea
+
+# Documentation
+README.md
+**/README.md
+
+# Exported or generated files
+export_api.py
+
+# Postman collections (optional)
+postman
+
+# Logs
+*.log
+
+# Misc
+*.tgz
+*.zip
+*.tar
+
+# Additional test and development files
+.eslintrc.js
+.prettierrc
+.prettierignore
+tsconfig.test.json
+*.test.js
+*.spec.js
