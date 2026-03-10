@@ -6,6 +6,7 @@ import { ProjectTriggerService } from './project-trigger.service';
 import { memoryStorage } from 'multer';
 import { ProjectSDGModule } from '../projectsdg/projectsdg.module';
 import { RecommendProjectsModule } from '../recommend-projects/recommend-projects.module';
+import { IndexerModule } from '../indexer/indexer.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { RecommendProjectsModule } from '../recommend-projects/recommend-project
     }),
     forwardRef(() => ProjectSDGModule),
     forwardRef(() => RecommendProjectsModule),
+    IndexerModule,
   ],
   controllers: [ProjectController],
   providers: [ProjectService, ProjectTriggerService],

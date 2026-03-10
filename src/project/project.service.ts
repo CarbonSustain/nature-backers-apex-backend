@@ -157,6 +157,15 @@ export class ProjectService {
       );
     }
 
+    // --- Methodology filter ---
+    if (filters?.methodology?.length) {
+      where.OR = (where.OR || []).concat(
+        (filters.methodology as string[]).map(m => ({
+          projectMethodology: { contains: m, mode: 'insensitive' as const },
+        }))
+      );
+    }
+
     // --- Apply idGate from relation/JSON matches, if any ---
     if (idGate) {
       if (idGate.length === 0) return [];
@@ -174,6 +183,51 @@ export class ProjectService {
     });
   }
 
+
+  async clearProjectCache(): Promise<{ deleted: number; reset: number }> {
+    // 1. Remove all SDG associations first (FK constraint)
+    await this.prisma.projectSDG.deleteMany({});
+
+    // 2. Find projects referenced by campaigns or votes — cannot delete these
+    const withAssociations = await this.prisma.project.findMany({
+      where: {
+        OR: [
+          { CampaignProject: { some: {} } },
+          { votes: { some: {} } },
+        ],
+      },
+      select: { id: true },
+    });
+    const idsWithAssoc = withAssociations.map(p => p.id);
+
+    // 3. Delete unreferenced projects
+    const deleted = await this.prisma.project.deleteMany({
+      where: { id: { notIn: idsWithAssoc } },
+    });
+
+    // 4. Reset rich data on referenced projects so they get re-synced
+    if (idsWithAssoc.length > 0) {
+      await this.prisma.project.updateMany({
+        where: { id: { in: idsWithAssoc } },
+        data: {
+          projectName: null,
+          primarySector: null,
+          secondarySector: null,
+          projectTypes: null,
+          standards: null,
+          impactAndRiskSdgs: null,
+          impactAndRiskAssessments: null,
+          verificationMethod: null,
+          proofPurpose: null,
+          projectMethodology: null,
+          latitude: null,
+          longitude: null,
+        },
+      });
+    }
+
+    return { deleted: deleted.count, reset: idsWithAssoc.length };
+  }
 
   // ✅ Optional: helper to upload file to S3
   async uploadFileToS3(file: Express.Multer.File): Promise<string> {

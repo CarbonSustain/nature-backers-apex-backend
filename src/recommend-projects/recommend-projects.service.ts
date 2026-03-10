@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { IndexerService } from '../indexer/indexer.service';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Use a shared Prisma client instance
 const prisma = new PrismaClient();
@@ -537,6 +539,121 @@ export class RecommendProjectsService {
   }
 
   /**
+   * Fetch ALL projects from the indexer (deduplicated) + hardcoded projects and upsert into DB.
+   * Used by POST /project/resync after clearing the cache.
+   */
+  async resyncAllProjects(): Promise<{ created: number; updated: number; skipped: number; errors: number }> {
+    this.logger.log('resyncAllProjects: starting full resync (Hardcoded + Blockchain)');
+
+    let created = 0, updated = 0, skipped = 0, errors = 0;
+
+    // --- 1. Blockchain projects first (bulk of the data, fetched in parallel) ---
+    let documents: any[] = [];
+    try {
+      documents = await this.indexerService.fetchUniqueProjects();
+    } catch (err) {
+      this.logger.error('resyncAllProjects: failed to fetch unique projects from indexer', err.message);
+    }
+
+    this.logger.log(`resyncAllProjects: upserting ${documents.length} blockchain projects`);
+
+    // Upsert each project to DB as soon as the list is ready
+    await Promise.allSettled(
+      documents.map(async (doc) => {
+        try {
+          const uniqueId = doc.key;
+          if (!uniqueId) { skipped++; return; }
+
+          const standards = doc.standards || null;
+
+          const projectData: any = {
+            uniqueId,
+            projectName: doc.name || null,
+            projectMethodology: doc.methodology || null,
+            consensusTimestamp: doc.timestamp || null,
+            status: doc.status || null,
+            standards,
+            projectTypes: doc.projectTypes || null,
+            primarySector: doc.primarySector || null,
+            impactAndRiskSdgs: doc.impactAndRiskSdgs?.length > 0 ? doc.impactAndRiskSdgs : null,
+            verificationMethod: doc.verificationMethod || null,
+          };
+
+          const upserted = await prisma.project.upsert({
+            where: { uniqueId },
+            update: projectData,
+            create: projectData,
+          });
+
+          // Create SDG associations from impactAndRiskSdgs
+          if (Array.isArray(doc.impactAndRiskSdgs) && doc.impactAndRiskSdgs.length > 0) {
+            const sdgIds = await this.extractSdgIdsFromVc(doc.impactAndRiskSdgs);
+            if (sdgIds.length > 0) {
+              await prisma.projectSDG.deleteMany({ where: { projectId: upserted.id } });
+              await this.createProjectSdgAssociations(upserted.id, sdgIds);
+            }
+          }
+
+          updated++;
+        } catch (e: any) {
+          this.logger.error(`resyncAllProjects: error upserting ${doc.key}: ${e.message}`);
+          errors++;
+        }
+      })
+    );
+
+    // --- 2. Hardcoded projects last (small number, runs after mainnet is already in DB) ---
+    try {
+      const hardcodedPath = path.join(process.cwd(), 'src', 'data', 'hardcoded-projects.json');
+      if (fs.existsSync(hardcodedPath)) {
+        const hardcodedProjects: any[] = JSON.parse(fs.readFileSync(hardcodedPath, 'utf-8'));
+        this.logger.log(`resyncAllProjects: upserting ${hardcodedProjects.length} hardcoded projects`);
+
+        for (const hp of hardcodedProjects) {
+          try {
+            const projectData: any = {
+              uniqueId: hp.uniqueId,
+              projectName: hp.projectName || null,
+              projectMethodology: hp.projectMethodology || null,
+              primarySector: hp.primarySector || null,
+              projectTypes: hp.projectTypes || null,
+              status: hp.status || 'Active',
+              latitude: hp.latitude ?? null,
+              longitude: hp.longitude ?? null,
+              standards: hp.standards || null,
+            };
+
+            const upserted = await prisma.project.upsert({
+              where: { uniqueId: hp.uniqueId },
+              update: projectData,
+              create: projectData,
+            });
+
+            if (Array.isArray(hp.sdgIds) && hp.sdgIds.length > 0) {
+              await prisma.projectSDG.deleteMany({ where: { projectId: upserted.id } });
+              for (const sdgId of hp.sdgIds) {
+                const exists = await prisma.sDG.findUnique({ where: { id: sdgId } });
+                if (exists) {
+                  await prisma.projectSDG.create({ data: { projectId: upserted.id, sdgId } });
+                }
+              }
+            }
+            created++;
+          } catch (e: any) {
+            this.logger.error(`resyncAllProjects: error upserting hardcoded ${hp.uniqueId}: ${e.message}`);
+            errors++;
+          }
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn('resyncAllProjects: could not load hardcoded-projects.json', e.message);
+    }
+
+    this.logger.log(`resyncAllProjects done — updated=${updated} created=${created} skipped=${skipped} errors=${errors}`);
+    return { created, updated, skipped, errors };
+  }
+
+  /**
    * Get full VC data by consensusTimestamp and update project
    */
   async getVcByTimestamp(consensusTimestamp: string): Promise<any> {
@@ -601,20 +718,29 @@ export class RecommendProjectsService {
       let parsedDocument: any;
 
       try {
-        parsedDocument = JSON.parse(documentString);
+        parsedDocument = typeof documentString === 'string' ? JSON.parse(documentString) : documentString;
       } catch (parseError) {
         throw new Error(`Failed to parse VC document: ${parseError.message}`);
       }
 
-      // Step 4: Extract credentialSubject data
-      if (!parsedDocument.credentialSubject || !Array.isArray(parsedDocument.credentialSubject) || parsedDocument.credentialSubject.length === 0) {
+      // Step 4: Extract credentialSubject data (may be an array or a single object)
+      const rawCs = parsedDocument.credentialSubject;
+      if (rawCs == null) {
         throw new Error('No credentialSubject found in parsed document');
       }
+      const credentialSubject = Array.isArray(rawCs) ? rawCs[0] : rawCs;
 
-      const credentialSubject = parsedDocument.credentialSubject[0];
-
-      // Step 5: Extract and map SDG IDs from impactAndRiskSdgs
-      const sdgIds = await this.extractSdgIdsFromVc(credentialSubject.impactAndRiskSdgs || []);
+      // Step 5: Extract and map SDG IDs from impactAndRiskSdgs (direct or nested under projectDescription)
+      const rawSdgs: string[] =
+        (Array.isArray(credentialSubject.impactAndRiskSdgs) && credentialSubject.impactAndRiskSdgs.length > 0
+          ? credentialSubject.impactAndRiskSdgs
+          : null) ??
+        (Array.isArray(credentialSubject.projectDescription?.impactAndRiskSdgs) &&
+         credentialSubject.projectDescription.impactAndRiskSdgs.length > 0
+          ? credentialSubject.projectDescription.impactAndRiskSdgs
+          : null) ??
+        [];
+      const sdgIds = await this.extractSdgIdsFromVc(rawSdgs);
 
       // Step 6: Update project with full VC data
       const incomingData: any = {
@@ -623,17 +749,57 @@ export class RecommendProjectsService {
       };
       
       // Only add fields that have actual values
-      if (credentialSubject.projectName) {
-        incomingData.projectName = credentialSubject.projectName;
+      // Multi-schema name extraction: VM0042/CCB uses projectDescription.name,
+      // VM0033 uses projectTitle, older schemas use project_details.G5, legacy uses projectName
+      const extractedName =
+        credentialSubject.projectName ||
+        (typeof credentialSubject.projectDescription === 'object'
+          ? credentialSubject.projectDescription?.name
+          : null) ||
+        credentialSubject.projectTitle ||
+        (typeof credentialSubject.project_details === 'object'
+          ? credentialSubject.project_details?.G5
+          : null);
+      if (extractedName) {
+        incomingData.projectName = extractedName;
       }
-      if (credentialSubject.primarySector) {
-        incomingData.primarySector = credentialSubject.primarySector;
-      }
+      // Primary sector: direct field or VM0047 G143.G5
+      const primarySector =
+        credentialSubject.primarySector ||
+        (typeof credentialSubject.projectDescription?.G143 === 'object'
+          ? credentialSubject.projectDescription?.G143?.G5
+          : null);
+      if (primarySector) incomingData.primarySector = primarySector;
+
       if (credentialSubject.secondarySector) {
         incomingData.secondarySector = credentialSubject.secondarySector;
       }
-      if (credentialSubject.projectTypes) {
-        incomingData.projectTypes = credentialSubject.projectTypes;
+
+      // Project types: multi-schema extraction
+      const parsePyList = (s: string) => {
+        const t = s?.trim();
+        if (!t?.startsWith('[')) return s;
+        return t.slice(1, -1).split(',').map(p => p.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).join(', ');
+      };
+      const rawProjectTypes =
+        credentialSubject.projectTypes ||
+        credentialSubject.projectType ||
+        (() => {
+          const pd = credentialSubject.projectDescription;
+          if (typeof pd !== 'object' || pd === null) return null;
+          const vcsTypes = pd?.registry_vcs?.vcs_additional_project_types;
+          if (Array.isArray(vcsTypes) && vcsTypes.length > 0) return vcsTypes.join(', ');
+          const g143Type = pd?.G143?.G6;
+          if (g143Type && g143Type !== 'Not specified') return g143Type;
+          const ccbType = pd?.registry_ccb?.ccb_project_type;
+          if (ccbType && ccbType !== 'Not specified') return ccbType;
+          return null;
+        })() ||
+        credentialSubject.project_type ||
+        credentialSubject.type_of_project;
+      if (rawProjectTypes) {
+        const normalized = Array.isArray(rawProjectTypes) ? rawProjectTypes.join(', ') : String(rawProjectTypes);
+        incomingData.projectTypes = parsePyList(normalized);
       }
       if (credentialSubject.standards) {
         incomingData.standards = credentialSubject.standards;
@@ -649,9 +815,8 @@ export class RecommendProjectsService {
       }
       
       // Only add arrays if they have content
-      if (credentialSubject.impactAndRiskSdgs && Array.isArray(credentialSubject.impactAndRiskSdgs) && 
-          credentialSubject.impactAndRiskSdgs.length > 0) {
-        incomingData.impactAndRiskSdgs = credentialSubject.impactAndRiskSdgs;
+      if (rawSdgs.length > 0) {
+        incomingData.impactAndRiskSdgs = rawSdgs;
       }
       if (credentialSubject.impactAndRiskAssessments && Array.isArray(credentialSubject.impactAndRiskAssessments) && 
           credentialSubject.impactAndRiskAssessments.length > 0) {

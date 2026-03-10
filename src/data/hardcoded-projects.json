@@ -1,0 +1,22 @@
+[
+  {
+    "uniqueId": "hardcoded-monarch-corridor-001",
+    "projectName": "Monarch Corridor Reforestation",
+    "description": "Native reforestation in the monarch-butterfly corridor; watershed + carbon benefits (Mexico City)",
+    "projectTypes": "ARR (Reforestation)",
+    "projectMethodology": "VM0047",
+    "primarySector": "AFOLU",
+    "standards": {
+      "carbonStandard": "Verra VCS + CCB"
+    },
+    "sdgIds": [6, 11, 13, 15],
+    "status": "Active",
+    "latitude": 19.4326,
+    "longitude": -99.1332,
+    "projectPeriod": "2026-2037",
+    "projectArea": "5,410 hectares",
+    "estimatedRemovals": 1994507,
+    "communityParticipation": "Operates on communal lands; community involvement + CSR tree planting campaigns",
+    "biodiversityImpact": "Monarch corridor restoration; endangered Teporingo habitat; mixed species"
+  }
+]

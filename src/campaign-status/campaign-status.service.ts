@@ -554,6 +554,15 @@ export class CampaignStatusService {
    */
   private async fixMissingBlockchainData() {
     try {
+      // Reset any campaigns stuck mid-push (service crashed while 'PUSHING' lock was held)
+      const stuckReset = await prisma.campaign.updateMany({
+        where: { campaignStatus: { name: 'Approved' }, tx_hash: 'PUSHING' },
+        data: { tx_hash: null },
+      });
+      if (stuckReset.count > 0) {
+        console.log(`🔓 Reset ${stuckReset.count} campaign(s) stuck in PUSHING state`);
+      }
+
       // Get approved campaigns without tx_hash
       const campaignsWithoutTxHash = await prisma.campaign.findMany({
         where: {

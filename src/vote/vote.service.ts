@@ -189,54 +189,39 @@ export class VoteService {
    * Push all votes for a campaign to Hedera when campaign is approved
    */
   async pushVotesToHedera(campaignId: number) {
+    // Atomic claim: only the first concurrent caller proceeds.
+    // Uses a single UPDATE ... WHERE tx_hash IS NULL as an optimistic lock.
+    // This prevents duplicate blockchain submissions when Lambda retries or two
+    // callers race (e.g. status handler + Lambda firing simultaneously).
+    const claim = await prisma.campaign.updateMany({
+      where: { id: campaignId, tx_hash: null },
+      data: { tx_hash: 'PUSHING' },
+    });
+
+    if (claim.count === 0) {
+      const current = await prisma.campaign.findUnique({
+        where: { id: campaignId },
+        select: { tx_hash: true },
+      });
+      if (!current) throw new Error('Campaign not found');
+      if (current.tx_hash === 'PUSHING') {
+        console.log(`⏳ Campaign ${campaignId} push already in progress — skipping`);
+        return { message: 'Push already in progress', pushedCount: 0, skipped: true };
+      }
+      console.log(`⚠️ Campaign ${campaignId} already pushed (tx_hash: ${current.tx_hash}) — skipping`);
+      return { message: 'Votes already pushed to Hedera', pushedCount: 0, skipped: true, existingTxHash: current.tx_hash };
+    }
+
+    console.log(`🚀 Campaign ${campaignId} claimed for Hedera push`);
+
     try {
-      console.log(`🚀 Starting Hedera push for campaign ${campaignId}`);
-      
-      // Check if votes were already pushed to Hedera
+      // Fetch createdAt for the versioned campaign identifier
       const campaign = await prisma.campaign.findUnique({
         where: { id: campaignId },
-        select: { tx_hash: true, createdAt: true }
+        select: { createdAt: true },
       });
+      if (!campaign) throw new Error('Campaign not found');
 
-      if (!campaign) {
-        throw new Error('Campaign not found');
-      }
-
-      if (campaign.tx_hash) {
-        console.log(`⚠️ Campaign ${campaignId} already has tx_hash: ${campaign.tx_hash}`);
-        console.log(`🔄 Skipping Hedera push - votes already pushed`);
-        return { 
-          message: 'Votes already pushed to Hedera', 
-          pushedCount: 0,
-          skipped: true,
-          existingTxHash: campaign.tx_hash
-        };
-      }
-
-
-
-      // Additional check: see if any votes already have vote_hash
-      const existingVotes = await prisma.vote.findMany({
-        where: { 
-          campaignId,
-          vote_hash: { not: null }
-        },
-        select: { id: true, vote_hash: true }
-      });
-
-      if (existingVotes.length > 0) {
-        console.log(`⚠️ Campaign ${campaignId} has ${existingVotes.length} votes already pushed to Hedera`);
-        console.log(`🔄 Skipping Hedera push - votes already exist on blockchain`);
-        return { 
-          message: 'Votes already pushed to Hedera', 
-          pushedCount: 0,
-          skipped: true,
-          existingVoteCount: existingVotes.length
-        };
-      }
-
-      console.log(`✅ Campaign ${campaignId} has no tx_hash and no existing vote_hashes - proceeding with Hedera push`);
-      
       // Get all votes for the campaign
       const votes = await prisma.vote.findMany({
         where: { campaignId },
@@ -289,12 +274,40 @@ export class VoteService {
       let successCount = 0;
       const failedVotes = [];
 
+      // Pre-fetch on-chain votes once to detect already-submitted votes
+      const campaignVersion = campaign.createdAt.getTime().toString();
+      const campaignIdentifier = `${campaignId}_${campaignVersion}`;
+
+      let onChainEmails: string[] = [];
+      try {
+        const onChainCount = Number(await contract.getVoteCount(campaignIdentifier));
+        if (onChainCount > 0) {
+          const onChainVotes = await contract.getVotesForCampaign(campaignIdentifier, 0, onChainCount);
+          onChainEmails = onChainVotes.emails.map((e: string) => e.toLowerCase());
+          console.log(`📋 Found ${onChainCount} existing votes on-chain for campaign identifier ${campaignIdentifier}`);
+        }
+      } catch (e) {
+        console.warn(`⚠️ Could not pre-fetch on-chain votes: ${e.message}`);
+      }
+
       // Push each vote to Hedera
       for (const vote of votes) {
         try {
-          // Skip votes that already have a vote_hash
+          // Skip votes that already have a vote_hash in DB
           if (vote.vote_hash) {
             console.log(`⏭️ Vote ${vote.id} already has vote_hash: ${vote.vote_hash} - skipping`);
+            continue;
+          }
+
+          // Check if vote already exists on-chain (DB was not updated after a previous push)
+          const emailLower = (vote.user.business_email || '').toLowerCase();
+          if (onChainEmails.includes(emailLower)) {
+            console.log(`⚠️ Vote ${vote.id} (${vote.user.business_email}) already exists on-chain — DB not updated. Recovering...`);
+            await prisma.vote.update({
+              where: { id: vote.id },
+              data: { vote_hash: 'RECOVERED_ALREADY_ON_CHAIN' }
+            });
+            successCount++;
             continue;
           }
 
@@ -302,11 +315,7 @@ export class VoteService {
           const voteData = vote.voteData as any;
           const reason = voteData?.reason || '';
           const departmentId = voteData?.departmentId || null;
-          
-          // Create versioned campaign identifier to avoid conflicts when database is reset
-          const campaignVersion = campaign.createdAt.getTime().toString();
-          const campaignIdentifier = `${campaignId}_${campaignVersion}`;
-          
+
           // Create additional data JSON
           const additionalData = JSON.stringify({
             reason,
@@ -318,21 +327,21 @@ export class VoteService {
             voteId: vote.id,
             createdAt: vote.createdAt.toISOString()
           });
-          
+
           // Cast vote on Hedera (always vote in favor = 1 for now)
           const tx = await contract.castVote(
-            campaignIdentifier, // Use versioned campaign ID
+            campaignIdentifier,
             1, // voteOption: 1 = in favor
-            vote.user.business_email || '', // email
-            ethers.ZeroAddress, // voterAddress (not used)
-            additionalData // additionalData as JSON string
+            vote.user.business_email || '',
+            ethers.ZeroAddress,
+            additionalData
           );
 
           // Wait for transaction confirmation
           const receipt = await tx.wait();
-          
+
           console.log(`✅ Vote ${vote.id} pushed to Hedera. TX Hash: ${receipt.hash}`);
-          
+
           // Update vote with Hedera transaction hash
           await prisma.vote.update({
             where: { id: vote.id },
@@ -340,12 +349,39 @@ export class VoteService {
           });
 
           successCount++;
-          
+
         } catch (error) {
-          console.error(`❌ Failed to push vote ${vote.id} to Hedera:`, error);
+          // NONCE_EXPIRED means a previous tx for this vote already landed on-chain
+          // but the DB update never happened. Recover by checking on-chain state.
+          if (error.code === 'NONCE_EXPIRED' || (error.message && error.message.includes('nonce has already been used'))) {
+            console.log(`⚠️ Vote ${vote.id} NONCE_EXPIRED — transaction was already submitted. Attempting on-chain recovery...`);
+            try {
+              const onChainCount = Number(await contract.getVoteCount(campaignIdentifier));
+              if (onChainCount > 0) {
+                const onChainVotes = await contract.getVotesForCampaign(campaignIdentifier, 0, onChainCount);
+                const emailLower = (vote.user.business_email || '').toLowerCase();
+                const matchIndex = onChainVotes.emails.findIndex(
+                  (e: string) => e.toLowerCase() === emailLower
+                );
+                if (matchIndex >= 0) {
+                  console.log(`✅ Vote ${vote.id} confirmed on-chain at index ${matchIndex}. Updating DB.`);
+                  await prisma.vote.update({
+                    where: { id: vote.id },
+                    data: { vote_hash: 'RECOVERED_NONCE_EXPIRED' }
+                  });
+                  successCount++;
+                  continue;
+                }
+              }
+              console.error(`❌ Could not confirm vote ${vote.id} on-chain after NONCE_EXPIRED.`);
+            } catch (recoveryError) {
+              console.error(`❌ Recovery query failed for vote ${vote.id}:`, recoveryError.message);
+            }
+          }
+          console.error(`❌ Failed to push vote ${vote.id} to Hedera:`, error.shortMessage || error.message);
           failedVotes.push({
             voteId: vote.id,
-            error: error.message
+            error: error.shortMessage || error.message
           });
         }
       }
@@ -400,29 +436,14 @@ export class VoteService {
         console.log(`🌳 Merkle Root: ${campaignTxData.merkleRoot}`);
         console.log(`📊 Total Votes in Tree: ${campaignTxData.totalVotes}`);
 
-        // Store the Merkle root and transaction data in the campaign
-        await prisma.$transaction(async (tx) => {
-          // Double-check that campaign still doesn't have tx_hash
-          const currentCampaign = await tx.campaign.findUnique({
-            where: { id: campaignId },
-            select: { tx_hash: true }
-          });
-
-          if (currentCampaign?.tx_hash) {
-            console.log(`⚠️ Campaign ${campaignId} already has tx_hash during transaction: ${currentCampaign.tx_hash}`);
-            return;
-          }
-
-          await tx.campaign.update({
-            where: { id: campaignId },
-            data: { 
-              tx_hash: campaignTxData.merkleRoot 
-            }
-          });
+        // We hold the 'PUSHING' lock — safe to update directly, no double-check needed
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { tx_hash: campaignTxData.merkleRoot },
         });
 
         console.log(`✅ Campaign updated with Merkle root transaction hash`);
-        
+
         return {
           message: 'All votes pushed to Hedera and Merkle tree generated',
           pushedCount: successCount,
@@ -432,8 +453,8 @@ export class VoteService {
         };
       } else if (successCount > 0 && failedVotes.length > 0) {
         console.log(`⚠️ Some votes failed to push. Success: ${successCount}, Failed: ${failedVotes.length}`);
-        console.log(`🔄 Merkle tree generation skipped - will be handled by nightly correction`);
-        
+        // Release lock so nightly correction can retry
+        await prisma.campaign.updateMany({ where: { id: campaignId, tx_hash: 'PUSHING' }, data: { tx_hash: null } });
         return {
           message: 'Some votes failed to push to Hedera',
           pushedCount: successCount,
@@ -443,6 +464,8 @@ export class VoteService {
         };
       } else {
         console.log(`❌ All votes failed to push to Hedera`);
+        // Release lock so nightly correction can retry
+        await prisma.campaign.updateMany({ where: { id: campaignId, tx_hash: 'PUSHING' }, data: { tx_hash: null } });
         return {
           message: 'All votes failed to push to Hedera',
           pushedCount: 0,
@@ -453,6 +476,8 @@ export class VoteService {
       }
 
     } catch (error) {
+      // Release lock on unexpected error so nightly correction can retry
+      await prisma.campaign.updateMany({ where: { id: campaignId, tx_hash: 'PUSHING' }, data: { tx_hash: null } }).catch(() => {});
       console.error('❌ Error pushing votes to Hedera:', error);
       throw new Error(`Failed to push votes to Hedera: ${error.message}`);
     }
@@ -649,12 +674,25 @@ export class VoteService {
         }
       }
 
-      console.log(`✅ Successfully pulled ${parsedVotes.length} votes from Hedera`);
+      // Deduplicate by email — keep first occurrence (blockchain may have duplicates from retries)
+      const seenEmails = new Set<string>();
+      const dedupedVotes = parsedVotes.filter(v => {
+        const key = (v.email || '').toLowerCase();
+        if (seenEmails.has(key)) return false;
+        seenEmails.add(key);
+        return true;
+      });
+
+      if (dedupedVotes.length !== parsedVotes.length) {
+        console.log(`🔁 Deduplicated ${parsedVotes.length} → ${dedupedVotes.length} votes (removed ${parsedVotes.length - dedupedVotes.length} duplicates)`);
+      }
+
+      console.log(`✅ Successfully pulled ${dedupedVotes.length} votes from Hedera`);
 
       return {
         message: 'Votes pulled from Hedera successfully',
-        voteCount: parsedVotes.length,
-        votes: parsedVotes
+        voteCount: dedupedVotes.length,
+        votes: dedupedVotes
       };
 
     } catch (error) {
