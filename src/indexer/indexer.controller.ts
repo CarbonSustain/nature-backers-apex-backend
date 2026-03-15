@@ -72,6 +72,28 @@ export class IndexerController {
     }
   }
 
+  @Get('projects-by-sdg')
+  async getProjectsBySDG(@Query('sdgs') sdgsParam: string, @Res() res: Response) {
+    try {
+      const sdgNumbers = (sdgsParam || '1,2,3,4,5,6,7,8,9,10,11,12,13')
+        .split(',')
+        .map(n => parseInt(n.trim(), 10))
+        .filter(n => !isNaN(n) && n >= 1 && n <= 17);
+
+      const results = await this.indexerService.fetchProjectsBySDGs(sdgNumbers);
+      return res.status(HttpStatus.OK).json({
+        success: true,
+        data: results,
+      });
+    } catch (error) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        error: 'SDG_FETCH_FAILED',
+        message: error.message,
+      });
+    }
+  }
+
   @Get('vc/:consensusTimestamp')
   async getVcByMessageId(@Query('consensusTimestamp') consensusTimestamp: string, @Res() res: Response) {
     try {

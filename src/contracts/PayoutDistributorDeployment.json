@@ -1,0 +1,202 @@
+{
+  "address": "0x137C806114456a2693Efa4491003c926d69ba831",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_wallet1",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_wallet2",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_wallet3",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "totalAmount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "pct1",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "pct2",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "pct3",
+          "type": "uint256"
+        }
+      ],
+      "name": "PayoutDistributed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "wallet1",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "wallet2",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "wallet3",
+          "type": "address"
+        }
+      ],
+      "name": "WalletsUpdated",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "campaignId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "pct1",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "pct2",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "pct3",
+          "type": "uint256"
+        }
+      ],
+      "name": "distribute",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "projectWallet1",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "projectWallet2",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "projectWallet3",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_wallet1",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_wallet2",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_wallet3",
+          "type": "address"
+        }
+      ],
+      "name": "setWallets",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "stateMutability": "payable",
+      "type": "receive"
+    }
+  ],
+  "network": "hederaTestnet",
+  "deployedAt": "2026-03-13T14:55:57.655Z",
+  "wallets": {
+    "wallet1": "0x335f06b7d9e887fedf8afb48018c058b86bbfd4b",
+    "wallet2": "0x173438aab99c61151a925ad372f14070d4fee0f2",
+    "wallet3": "0x7c93fcd08dd9e8ea0d642e0973774ff14bb102e6"
+  }
+}

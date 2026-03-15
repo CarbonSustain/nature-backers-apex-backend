@@ -201,7 +201,7 @@ export class IndexerService {
     this.baseUrl = process.env.INDEXER_API_URL || 'http://localhost:8080';
     this.logger.log(`IndexerService initialized, API URL: ${this.baseUrl}`);
 
-    const globalIndexerUrl = process.env.BASE_URL || "https://indexer.guardianservice.app/api/v1/mainnet";
+    const globalIndexerUrl = process.env.INDEXER_URL || "https://indexer.guardianservice.app/api/v1/mainnet";
     const token = process.env.BEARER_TOKEN || "";
     // If token is missing, createClient might throw or log warning depending on implementation.
     // Assuming it's fine for public endpoints or handled inside.
@@ -307,8 +307,8 @@ export class IndexerService {
   }
 
   private async _fetchProjectsByPolicyId(policyId: string): Promise<any[]> {
-    const baseUrl = process.env.BASE_URL || "https://indexer.guardianservice.app/api/v1/mainnet";
-    const token = process.env.BEARER_TOKEN || process.env.GUARDIAN_BEARER_TOKEN || "";
+    const baseUrl = process.env.INDEXER_URL || "https://indexer.guardianservice.app/api/v1/mainnet";
+    const token = process.env.BEARER_TOKEN || "";
     
     const allProjects: any[] = [];
     let pageIndex = 0;
@@ -471,6 +471,20 @@ export class IndexerService {
 
     this.logger.log(`fetchUniqueProjects: returning ${detailedProjects.length} deduplicated projects`);
     return detailedProjects;
+  }
+
+  async fetchProjectsBySDGs(
+    sdgNumbers: number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+  ): Promise<{ sdg: number; projects: any[] }[]> {
+    this.logger.log(`fetchProjectsBySDGs: SDGs [${sdgNumbers.join(',')}]`);
+    return this.retryWithBackoff(async () => {
+      const param = `?sdgs=${sdgNumbers.join(',')}`;
+      const results = await this.apiFetch(`/projects/by-sdg${param}`);
+      const arr = Array.isArray(results) ? results : [];
+      const total = arr.reduce((sum: number, r: any) => sum + (r.projects?.length ?? 0), 0);
+      this.logger.log(`fetchProjectsBySDGs: ${total} projects across ${arr.length} SDGs`);
+      return arr;
+    });
   }
 
   async getProjectsByMethodology(methodologies?: string[]): Promise<any[]> {

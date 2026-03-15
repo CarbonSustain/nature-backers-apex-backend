@@ -299,6 +299,92 @@ export class VoteController {
   }
 
   /**
+   * GET /vote/rewards/:userId - Get rewards and points for a user
+   */
+  @Get('rewards/:userId')
+  async getUserRewards(
+    @Param('userId') userId: string,
+    @Res() res: Response
+  ) {
+    try {
+      const userIdNum = parseInt(userId, 10);
+      if (isNaN(userIdNum)) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          statusCode: 400,
+          message: 'Invalid user ID',
+        });
+      }
+
+      const result = await this.voteService.getUserRewards(userIdNum);
+
+      return res.status(HttpStatus.OK).json({
+        statusCode: 200,
+        message: 'Rewards retrieved successfully',
+        data: result,
+      });
+    } catch (error) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        statusCode: 500,
+        message: 'Failed to retrieve rewards',
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * POST /vote/payout/:campaignId - Execute HBAR payout for an approved campaign (admin only)
+   */
+  @Post('payout/:campaignId')
+  async payoutCampaign(
+    @Param('campaignId') campaignId: string,
+    @Query('userId') userId: string,
+    @Res() res: Response
+  ) {
+    try {
+      if (!userId) {
+        return res.status(HttpStatus.UNAUTHORIZED).json({
+          statusCode: 401,
+          message: 'User ID is required',
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: parseInt(userId, 10) },
+        include: { role: true },
+      });
+
+      if (!user || user.role_id !== 1) {
+        return res.status(HttpStatus.FORBIDDEN).json({
+          statusCode: 403,
+          message: 'Access denied. Admin role required.',
+        });
+      }
+
+      const campaignIdNum = parseInt(campaignId, 10);
+      if (isNaN(campaignIdNum)) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          statusCode: 400,
+          message: 'Invalid campaign ID',
+        });
+      }
+
+      const result = await this.voteService.payoutCampaign(campaignIdNum);
+
+      return res.status(HttpStatus.OK).json({
+        statusCode: 200,
+        message: 'Payout executed successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.error('❌ Payout error:', error);
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        statusCode: 500,
+        message: error.message || 'Failed to execute payout',
+      });
+    }
+  }
+
+  /**
    * POST /vote/hedera/:campaignId - Push votes to Hedera (for Lambda corrections)
    */
   @Post('hedera/:campaignId')

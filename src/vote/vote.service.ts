@@ -588,6 +588,191 @@ export class VoteService {
 
 
   /**
+   * Execute a payout for an approved campaign.
+   * Sends 1 HBAR to the PayoutDistributor contract which splits it
+   * proportionally across the top-3 voted projects' wallets.
+   */
+  async payoutCampaign(campaignId: number) {
+    // Load contract deployment info
+    const deploymentPath = path.join(process.cwd(), 'src/contracts/PayoutDistributorDeployment.json');
+    if (!fs.existsSync(deploymentPath)) {
+      throw new Error('PayoutDistributor not deployed yet. Run: npx hardhat run deploy-payout.js --network hederaTestnet');
+    }
+    const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
+
+    // Get all votes for the campaign from DB
+    const votes = await prisma.vote.findMany({
+      where: { campaignId },
+      select: { projectId: true, project: { select: { projectName: true } } },
+    });
+
+    if (votes.length === 0) {
+      throw new Error('No votes found for this campaign');
+    }
+
+    // Tally votes per project
+    const tally: Record<number, { name: string; count: number }> = {};
+    for (const v of votes) {
+      if (!tally[v.projectId]) {
+        tally[v.projectId] = { name: v.project.projectName, count: 0 };
+      }
+      tally[v.projectId].count++;
+    }
+
+    // Sort by votes descending, take top 3
+    const sorted = Object.entries(tally)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 3);
+
+    const totalVotes = votes.length;
+
+    // Calculate integer percentages that sum to exactly 100
+    let pcts = sorted.map(([, { count }]) => Math.floor((count / totalVotes) * 100));
+    const pctSum = pcts.reduce((a, b) => a + b, 0);
+    pcts[0] += 100 - pctSum; // assign rounding remainder to top project
+
+    // Pad to 3 slots with 0
+    while (pcts.length < 3) pcts.push(0);
+
+    const [pct1, pct2, pct3] = pcts;
+
+    console.log(`💰 Payout for campaign ${campaignId}:`);
+    sorted.forEach(([projectId, { name, count }], i) => {
+      console.log(`  Slot ${i + 1}: Project ${projectId} (${name}) — ${count} votes — ${pcts[i]}%`);
+    });
+
+    // Initialize Hedera provider + wallet
+    const provider = new ethers.JsonRpcProvider(process.env.HEDERA_TESTNET_RPC_URL);
+    const privateKey = process.env.PRIVATE_KEY_HEDERA?.startsWith('0x')
+      ? process.env.PRIVATE_KEY_HEDERA.slice(2)
+      : process.env.PRIVATE_KEY_HEDERA;
+    const wallet = new ethers.Wallet(`0x${privateKey}`, provider);
+
+    // Create contract instance
+    const contract = new ethers.Contract(deploymentData.address, deploymentData.abi, wallet);
+
+    // Send 1 HBAR to distribute
+    const oneHbar = ethers.parseEther('1');
+    console.log(`🚀 Calling distribute(${campaignId}, ${pct1}, ${pct2}, ${pct3}) with 1 HBAR`);
+
+    const tx = await contract.distribute(campaignId, pct1, pct2, pct3, { value: oneHbar });
+    const receipt = await tx.wait();
+
+    console.log(`✅ Payout complete. TX Hash: ${receipt.hash}`);
+
+    return {
+      txHash: receipt.hash,
+      campaignId,
+      totalVotes,
+      distribution: sorted.map(([projectId, { name, count }], i) => ({
+        slot: i + 1,
+        projectId: Number(projectId),
+        projectName: name,
+        votes: count,
+        percentage: pcts[i],
+      })),
+    };
+  }
+
+  /**
+   * Get rewards and points for a specific user based on their blockchain votes
+   */
+  async getUserRewards(userId: number) {
+    const votes = await prisma.vote.findMany({
+      where: { userId },
+      include: {
+        project: {
+          select: {
+            id: true,
+            projectName: true,
+            latitude: true,
+            longitude: true,
+          }
+        },
+        campaign: {
+          select: { id: true, name: true }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    const blockchainVotes = votes.filter(v => v.vote_hash && v.vote_hash !== 'PUSHING');
+    const blockchainVoteCount = blockchainVotes.length;
+    const points = blockchainVoteCount * 10;
+
+    const uniqueProjects = new Set(votes.map(v => v.projectId));
+
+    const getRegion = (lat: number | null, lon: number | null): string => {
+      if (lat === null || lat === undefined || lon === null || lon === undefined) return 'Unknown';
+      if (lat >= 10 && lat <= 85 && lon >= -170 && lon <= -50) return 'North America';
+      if (lat >= -60 && lat < 15 && lon >= -85 && lon < -30) return 'South America';
+      if (lat >= 35 && lat <= 75 && lon >= -25 && lon < 45) return 'Europe';
+      if (lat >= -40 && lat < 40 && lon >= -20 && lon < 55) return 'Africa';
+      if (lat >= 5 && lat <= 80 && lon >= 45 && lon < 145) return 'Asia';
+      if (lat >= -50 && lat < 0 && lon >= 110 && lon <= 180) return 'Oceania';
+      return 'Other';
+    };
+
+    const regionsVoted = new Set(
+      votes.map(v => getRegion(v.project.latitude, v.project.longitude))
+    );
+
+    const rewards = {
+      firstVote: {
+        id: 'first-vote',
+        name: 'First Vote',
+        description: 'Cast your first blockchain-verified vote to unlock this badge.',
+        icon: 'smiley',
+        unlocked: blockchainVoteCount >= 1,
+        points: 50,
+        progress: Math.min(blockchainVoteCount, 1),
+        required: 1,
+      },
+      projectPioneer: {
+        id: 'project-pioneer',
+        name: 'Project Pioneer',
+        description: 'Vote on 3 unique projects across campaigns.',
+        icon: 'ballot',
+        unlocked: uniqueProjects.size >= 3,
+        points: 100,
+        progress: uniqueProjects.size,
+        required: 3,
+      },
+      globeTrotter: {
+        id: 'globe-trotter',
+        name: 'Globe Trotter',
+        description: 'Vote on projects from 2 different geographic regions.',
+        icon: 'globe',
+        unlocked: regionsVoted.size >= 2,
+        points: 150,
+        progress: regionsVoted.size,
+        required: 2,
+        regionsVoted: Array.from(regionsVoted),
+      },
+    };
+
+    return {
+      userId,
+      totalVotes: votes.length,
+      blockchainVotes: blockchainVoteCount,
+      points,
+      uniqueProjectsVoted: uniqueProjects.size,
+      regionsVoted: Array.from(regionsVoted),
+      rewards,
+      voteHistory: votes.map(v => ({
+        id: v.id,
+        projectId: v.projectId,
+        projectName: v.project.projectName,
+        campaignId: v.campaignId,
+        campaignName: v.campaign.name,
+        region: getRegion(v.project.latitude, v.project.longitude),
+        hasBlockchainRecord: !!(v.vote_hash && v.vote_hash !== 'PUSHING'),
+        createdAt: v.createdAt,
+      })),
+    };
+  }
+
+  /**
    * Pull all votes for a campaign from Hedera
    */
   async pullVotesFromHedera(campaignId: number) {

@@ -142,26 +142,66 @@ export class ProjectController {
       const cleared = await this.projectService.clearProjectCache();
       console.log(`[resync] cache cleared: deleted=${cleared.deleted} reset=${cleared.reset}`);
 
-      // 2. Fetch fresh projects from blockchain (awaited — so we can return them immediately)
-      const blockchainDocs = await this.indexerService.fetchUniqueProjects();
+      // 2. Fetch fresh projects from blockchain and SDGs 1–13 in parallel
+      const [blockchainDocs, sdgResults] = await Promise.all([
+        this.indexerService.fetchUniqueProjects(),
+        this.indexerService.fetchProjectsBySDGs([1,2,3,4,5,6,7,8,9,10,11,12,13])
+          .catch(err => { console.warn('[resync] SDG fetch failed:', err.message); return []; }),
+      ]);
       console.log(`[resync] fetched ${blockchainDocs.length} projects from blockchain`);
 
       // 3. Map blockchain docs to display-friendly shape for the frontend
-      const blockchainProjects = blockchainDocs.map(doc => ({
-        uniqueId: doc.key,
-        projectName: doc.name || null,
-        description: doc.description !== 'N/A' ? doc.description : null,
-        projectMethodology: doc.methodology || null,
-        projectTypes: doc.projectTypes || null,
-        primarySector: doc.primarySector || null,
-        status: doc.status || null,
-        consensusTimestamp: doc.timestamp || null,
-        standards: doc.standards || null,
-        verificationMethod: doc.verificationMethod || null,
-        sdgs: [],
-        CampaignProject: [],
-        id: null,
-      }));
+      const seenIds = new Set<string>();
+      const blockchainProjects = blockchainDocs.map(doc => {
+        const id = doc.key;
+        if (id) seenIds.add(id);
+        return {
+          uniqueId: id,
+          projectName: doc.name || null,
+          description: doc.description !== 'N/A' ? doc.description : null,
+          projectMethodology: doc.methodology || null,
+          projectTypes: doc.projectTypes || null,
+          primarySector: doc.primarySector || null,
+          status: doc.status || null,
+          consensusTimestamp: doc.timestamp || null,
+          standards: doc.standards || null,
+          verificationMethod: doc.verificationMethod || null,
+          sdgs: [],
+          CampaignProject: [],
+          id: null,
+        };
+      });
+
+      // 3b. Flatten SDG results and deduplicate against blockchain projects
+      const sdgProjectMap = new Map<string, any>();
+      for (const { sdg, projects } of sdgResults) {
+        for (const item of projects) {
+          const uid = item.uuid || item.consensusTimestamp;
+          if (!uid || seenIds.has(uid)) continue;
+          if (!sdgProjectMap.has(uid)) {
+            sdgProjectMap.set(uid, {
+              uniqueId: uid,
+              projectName: item.analytics?.schemaName || null,
+              description: null,
+              projectMethodology: null,
+              projectTypes: null,
+              primarySector: null,
+              status: item.status || null,
+              consensusTimestamp: item.consensusTimestamp || null,
+              standards: null,
+              verificationMethod: null,
+              sdgs: [{ sdg: { id: sdg, name: '' } }],
+              CampaignProject: [],
+              id: null,
+            });
+          } else {
+            sdgProjectMap.get(uid)!.sdgs.push({ sdg: { id: sdg, name: '' } });
+          }
+          seenIds.add(uid);
+        }
+      }
+      const sdgProjects = Array.from(sdgProjectMap.values());
+      console.log(`[resync] fetched ${sdgProjects.length} additional SDG projects (deduplicated)`);
 
       // 4. Load hardcoded projects and append them
       let hardcodedProjects: any[] = [];
@@ -190,7 +230,7 @@ export class ProjectController {
         console.warn('[resync] could not load hardcoded-projects.json:', e.message);
       }
 
-      const projects = [...blockchainProjects, ...hardcodedProjects];
+      const projects = [...blockchainProjects, ...sdgProjects, ...hardcodedProjects];
 
       // 5. Persist everything to DB in the background (fire-and-forget)
       this.recommendProjectsService.resyncAllProjects()
@@ -199,7 +239,7 @@ export class ProjectController {
 
       return res.status(HttpStatus.OK).json({
         statusCode: 200,
-        message: `Fetched ${blockchainProjects.length} blockchain + ${hardcodedProjects.length} hardcoded projects. DB is syncing in the background.`,
+        message: `Fetched ${blockchainProjects.length} blockchain + ${sdgProjects.length} SDG + ${hardcodedProjects.length} hardcoded projects. DB is syncing in the background.`,
         data: { cleared, projects },
       });
     } catch (error) {

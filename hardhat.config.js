@@ -36,6 +36,9 @@ module.exports = {
       },
     ],
   },
+  paths: {
+    sources: "./src/contracts",
+  },
   networks: {
     // mumbai: {
     //   url: process.env.ALCHEMY_API,

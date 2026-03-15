@@ -1,0 +1,79 @@
+{
+  "_format": "hh-sol-cache-2",
+  "files": {
+    "/Users/kushaal/nature_wired/nature-backers-apex-backend/src/contracts/PayoutDistributor.sol": {
+      "lastModificationDate": 1773408393830,
+      "contentHash": "99fe5d604250ad36d7523a74418e2638",
+      "sourceName": "src/contracts/PayoutDistributor.sol",
+      "solcConfig": {
+        "version": "0.8.28",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "PayoutDistributor"
+      ]
+    },
+    "/Users/kushaal/nature_wired/nature-backers-apex-backend/src/contracts/VotingStorage.sol": {
+      "lastModificationDate": 1772546443687,
+      "contentHash": "f0da60c9d8fa302c133720ffa303a815",
+      "sourceName": "src/contracts/VotingStorage.sol",
+      "solcConfig": {
+        "version": "0.8.28",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "VotingStorage"
+      ]
+    }
+  }
+}

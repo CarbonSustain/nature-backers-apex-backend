@@ -649,6 +649,68 @@ export class RecommendProjectsService {
       this.logger.warn('resyncAllProjects: could not load hardcoded-projects.json', e.message);
     }
 
+    // --- 3. SDG 1–13 projects (from mainnet indexer full-text + keyword search) ---
+    try {
+      const sdgResults = await this.indexerService.fetchProjectsBySDGs([1,2,3,4,5,6,7,8,9,10,11,12,13]);
+      // Flatten and deduplicate
+      const sdgMap = new Map<string, { item: any; sdgNums: number[] }>();
+      for (const { sdg, projects } of sdgResults) {
+        for (const item of projects) {
+          const uid = item.uuid || item.consensusTimestamp;
+          if (!uid) continue;
+          if (sdgMap.has(uid)) {
+            sdgMap.get(uid)!.sdgNums.push(sdg);
+          } else {
+            sdgMap.set(uid, { item, sdgNums: [sdg] });
+          }
+        }
+      }
+      this.logger.log(`resyncAllProjects: upserting ${sdgMap.size} SDG projects`);
+
+      await Promise.allSettled(
+        Array.from(sdgMap.entries()).map(async ([uid, { item, sdgNums }]) => {
+          try {
+            const projectData: any = {
+              uniqueId: uid,
+              status: item.status || null,
+              consensusTimestamp: item.consensusTimestamp || null,
+              projectName: item.analytics?.schemaName || null,
+            };
+
+            const upserted = await prisma.project.upsert({
+              where: { uniqueId: uid },
+              update: {
+                status: projectData.status,
+                consensusTimestamp: projectData.consensusTimestamp,
+              },
+              create: projectData,
+            });
+
+            // Create SDG associations for matched SDG numbers
+            if (sdgNums.length > 0) {
+              const existingSdgs = await prisma.projectSDG.findMany({ where: { projectId: upserted.id }, select: { sdgId: true } });
+              const existingIds = new Set(existingSdgs.map(s => s.sdgId));
+              for (const sdgNum of sdgNums) {
+                if (!existingIds.has(sdgNum)) {
+                  const sdgExists = await prisma.sDG.findUnique({ where: { id: sdgNum } });
+                  if (sdgExists) {
+                    await prisma.projectSDG.create({ data: { projectId: upserted.id, sdgId: sdgNum } });
+                  }
+                }
+              }
+            }
+
+            updated++;
+          } catch (e: any) {
+            this.logger.error(`resyncAllProjects: error upserting SDG project ${uid}: ${e.message}`);
+            errors++;
+          }
+        })
+      );
+    } catch (err: any) {
+      this.logger.warn('resyncAllProjects: SDG projects fetch failed', err.message);
+    }
+
     this.logger.log(`resyncAllProjects done — updated=${updated} created=${created} skipped=${skipped} errors=${errors}`);
     return { created, updated, skipped, errors };
   }
