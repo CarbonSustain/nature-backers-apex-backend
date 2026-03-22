@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-
+import * as QRCode from 'qrcode';
 const prisma = new PrismaClient();
 
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
@@ -56,6 +56,14 @@ export class SendEmailService {
     // Single source of truth for campaign URL
     const campaignUrl = `${frontendUrl}auth/signin/?campaignId=${campaignId}`;
 
+    // Generate Wickr QR code as inline base64 data URL (no external service needed)
+    const wickrUrl = process.env.WICKR_URL || 'https://wickr.com/naturebacker';
+    const qrCodeDataUrl = await QRCode.toDataURL(wickrUrl, {
+      width: 200,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+
     const sesClient = new SESClient({ 
       region: process.env.AWS_REGION || 'us-west-1',
       credentials: {
@@ -95,6 +103,12 @@ export class SendEmailService {
                   ${campaignUrl}
                 </a>
               </p>
+
+              <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
+                <p style="color: #555; font-size: 14px; margin-bottom: 4px; font-weight: bold;">Connect with us on Wickr</p>
+                <p style="color: #999; font-size: 12px; margin-bottom: 12px;">Scan to join our secure messaging channel</p>
+                <img src="${qrCodeDataUrl}" alt="Wickr QR Code" style="width: 200px; height: 200px; display: inline-block;" />
+              </div>
               
               <div style="text-align:center; margin-top:32px;">
                 <img src="${campaignLogoUrl}" alt="Campaign Logo" style="max-width:80%; width:400px; border-radius:8px; display:inline-block;" />

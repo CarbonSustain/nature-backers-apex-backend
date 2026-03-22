@@ -63,7 +63,9 @@ model Campaign {
   campaignStatus     CampaignStatus       @relation(fields: [campaignStatusId], references: [id])
   CampaignDepartment CampaignDepartment[]
   CampaignProject    CampaignProject[]
+  payouts            Payout[]
   votes              Vote[]
+  volunteers         Volunteer[]
 
   @@unique([name, startDate, endDate, votingStyle])
 }
@@ -88,6 +90,16 @@ model CampaignDepartment {
   department   Department @relation(fields: [departmentId], references: [id])
 
   @@unique([campaignId, departmentId])
+}
+
+model Payout {
+  id         Int      @id @default(autoincrement())
+  campaignId Int
+  txId       String
+  createdAt  DateTime @default(now())
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+
+  @@unique([campaignId, txId])
 }
 
 model FilterCategory {
@@ -156,6 +168,18 @@ model User {
   department      Department? @relation(fields: [departmentId], references: [id])
   role            Role?       @relation(fields: [role_id], references: [id])
   votes           Vote[]
+  volunteers      Volunteer[]
+}
+
+model Volunteer {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  campaignId Int
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+
+  @@unique([userId, campaignId])
 }
 
 model Vote {

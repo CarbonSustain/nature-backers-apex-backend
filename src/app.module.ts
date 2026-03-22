@@ -18,6 +18,7 @@ import { IndexerModule } from './indexer/indexer.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { VoteModule } from './vote/vote.module';
+import { VolunteerModule } from './volunteer/volunteer.module';
 import { PrismaModule } from '../prisma/prisma.module';
 
 
@@ -40,6 +41,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     AuthModule,
     UserModule,
     VoteModule,
+    VolunteerModule,
     PrismaModule,
   ],
   providers: [PgListenerService],

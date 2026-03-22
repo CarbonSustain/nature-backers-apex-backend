@@ -332,6 +332,100 @@ export class VoteController {
   }
 
   /**
+   * POST /vote/claim-nft - Claim a participation NFT for an unlocked reward
+   */
+  @Post('claim-nft')
+  async claimNFT(
+    @Body() body: {
+      userId: number;
+      rewardId: string;
+      walletAddress: string;
+    },
+    @Res() res: Response
+  ) {
+    try {
+      if (!body.userId || !body.rewardId || !body.walletAddress) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          statusCode: 400,
+          message: 'userId, rewardId, and walletAddress are required',
+        });
+      }
+
+      const result = await this.voteService.claimNFT(
+        body.userId,
+        body.rewardId,
+        body.walletAddress,
+      );
+
+      return res.status(HttpStatus.OK).json({
+        statusCode: 200,
+        message: 'NFT claimed successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.error('❌ Claim NFT error:', error);
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        statusCode: 500,
+        message: error.message || 'Failed to claim NFT',
+        code: error.code,
+        tokenId: error.tokenId,
+      });
+    }
+  }
+
+  /**
+   * GET /vote/payouts/:campaignId - Get all payouts for a campaign (admin only)
+   */
+  @Get('payouts/:campaignId')
+  async getPayoutsForCampaign(
+    @Param('campaignId') campaignId: string,
+    @Query('userId') userId: string,
+    @Res() res: Response
+  ) {
+    try {
+      if (!userId) {
+        return res.status(HttpStatus.UNAUTHORIZED).json({
+          statusCode: 401,
+          message: 'User ID is required',
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: parseInt(userId, 10) },
+        include: { role: true },
+      });
+
+      if (!user || user.role_id !== 1) {
+        return res.status(HttpStatus.FORBIDDEN).json({
+          statusCode: 403,
+          message: 'Access denied. Admin role required.',
+        });
+      }
+
+      const campaignIdNum = parseInt(campaignId, 10);
+      if (isNaN(campaignIdNum)) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          statusCode: 400,
+          message: 'Invalid campaign ID',
+        });
+      }
+
+      const payouts = await this.voteService.getPayoutsForCampaign(campaignIdNum);
+
+      return res.status(HttpStatus.OK).json({
+        statusCode: 200,
+        message: 'Payouts retrieved successfully',
+        data: { payouts },
+      });
+    } catch (error) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        statusCode: 500,
+        message: error.message || 'Failed to retrieve payouts',
+      });
+    }
+  }
+
+  /**
    * POST /vote/payout/:campaignId - Execute HBAR payout for an approved campaign (admin only)
    */
   @Post('payout/:campaignId')
@@ -421,4 +515,4 @@ export class VoteController {
     }
   }
 
-} 
+}

@@ -660,6 +660,14 @@ export class VoteService {
 
     console.log(`✅ Payout complete. TX Hash: ${receipt.hash}`);
 
+    // Persist payout record so GET /vote/payouts/:campaignId can return it
+    await prisma.payout.create({
+      data: {
+        campaignId,
+        txId: receipt.hash,
+      },
+    });
+
     return {
       txHash: receipt.hash,
       campaignId,
@@ -672,6 +680,17 @@ export class VoteService {
         percentage: pcts[i],
       })),
     };
+  }
+
+  /**
+   * Get all payouts for a campaign
+   */
+  async getPayoutsForCampaign(campaignId: number) {
+    const payouts = await prisma.payout.findMany({
+      where: { campaignId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return payouts;
   }
 
   /**
@@ -769,6 +788,138 @@ export class VoteService {
         hasBlockchainRecord: !!(v.vote_hash && v.vote_hash !== 'PUSHING'),
         createdAt: v.createdAt,
       })),
+    };
+  }
+
+  /**
+   * Claim a participation NFT for an unlocked reward.
+   * Mints an NFT via Hedera Token Service and transfers it to the user's wallet.
+   *
+   * Requires env vars:
+   *   HEDERA_OPERATOR_ID        – treasury account (e.g. 0.0.12345)
+   *   PRIVATE_KEY_HEDERA        – ECDSA hex key for the operator
+   *   HEDERA_NFT_TOKEN_ID       – token created via TokenCreateTransaction (NonFungibleUnique)
+   *   NFT_BADGE_FIRST_VOTE      – DigitalOcean Spaces URL for First Vote badge image
+   *   NFT_BADGE_PROJECT_PIONEER – DigitalOcean Spaces URL for Project Pioneer badge image
+   *   NFT_BADGE_GLOBE_TROTTER   – DigitalOcean Spaces URL for Globe Trotter badge image
+   */
+  async claimNFT(userId: number, rewardId: string, walletAddress: string) {
+    // 1. Verify user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, business_email: true, first_name: true, last_name: true },
+    });
+    if (!user) throw new Error('User not found');
+
+    // 2. Verify the reward is actually unlocked
+    const rewardsData = await this.getUserRewards(userId);
+    const allRewards = Object.values(rewardsData.rewards) as any[];
+    const reward = allRewards.find((r: any) => r.id === rewardId);
+
+    if (!reward) throw new Error(`Reward "${rewardId}" not found`);
+    if (!reward.unlocked) {
+      throw new Error(
+        `Reward "${reward.name}" is not unlocked yet. Progress: ${reward.progress}/${reward.required}`,
+      );
+    }
+
+    // 3. Validate required env vars before touching the SDK
+    const missingVars = ['HEDERA_OPERATOR_ID', 'PRIVATE_KEY_HEDERA', 'HEDERA_NFT_TOKEN_ID'].filter(
+      (k) => !process.env[k],
+    );
+    if (missingVars.length > 0) {
+      throw new Error(`Missing required env vars for NFT minting: ${missingVars.join(', ')}`);
+    }
+
+    // 4. Dynamically import @hashgraph/sdk (keeps it optional at module level)
+    const {
+      Client,
+      PrivateKey,
+      AccountId,
+      TokenMintTransaction,
+      TransferTransaction,
+      TokenId,
+    } = await import('@hashgraph/sdk');
+
+    const operatorId = AccountId.fromString(process.env.HEDERA_OPERATOR_ID);
+    const operatorKey = PrivateKey.fromStringECDSA(
+      process.env.PRIVATE_KEY_HEDERA?.startsWith('0x')
+        ? process.env.PRIVATE_KEY_HEDERA.slice(2)
+        : process.env.PRIVATE_KEY_HEDERA,
+    );
+    const client = Client.forTestnet().setOperator(operatorId, operatorKey);
+
+    const nftTokenId = TokenId.fromString(process.env.HEDERA_NFT_TOKEN_ID);
+
+    // 5. Resolve badge image URL from env and use it as NFT metadata.
+    // Hedera HTS metadata is capped at 100 bytes.
+    // Storing the Spaces image URL directly lets wallets (HashScan, HashPack) render
+    // the badge image without needing a separate off-chain metadata file.
+    const BADGE_IMAGES: Record<string, string | undefined> = {
+      'first-vote':       process.env.NFT_BADGE_FIRST_VOTE,
+      'project-pioneer':  process.env.NFT_BADGE_PROJECT_PIONEER,
+      'globe-trotter':    process.env.NFT_BADGE_GLOBE_TROTTER,
+    };
+
+    const imageUrl = BADGE_IMAGES[rewardId];
+    if (!imageUrl) {
+      throw new Error(`No badge image URL configured for reward "${rewardId}". Set NFT_BADGE_* env vars.`);
+    }
+
+    const metadataBytes = Buffer.from(imageUrl, 'utf8');
+    if (metadataBytes.length > 100) {
+      throw new Error(`Badge image URL exceeds 100-byte metadata limit (${metadataBytes.length} bytes): ${imageUrl}`);
+    }
+
+    console.log(`🖼️  NFT metadata image URL (${metadataBytes.length} bytes): ${imageUrl}`);
+
+    console.log(`🎨 Minting NFT for reward "${reward.name}" to wallet ${walletAddress}`);
+
+    const mintTx = new TokenMintTransaction()
+      .setTokenId(nftTokenId)
+      .addMetadata(metadataBytes)
+      .freezeWith(client);
+
+    const mintSigned = await mintTx.sign(operatorKey);
+    const mintResponse = await mintSigned.execute(client);
+    const mintReceipt = await mintResponse.getReceipt(client);
+    const serialNumber = mintReceipt.serials[0].toNumber();
+
+    console.log(`✅ NFT minted — serial #${serialNumber}`);
+
+    // 6. Transfer NFT to user's wallet
+    const recipientId = AccountId.fromString(walletAddress);
+
+    const transferTx = new TransferTransaction()
+      .addNftTransfer(nftTokenId, serialNumber, operatorId, recipientId)
+      .freezeWith(client);
+
+    const transferSigned = await transferTx.sign(operatorKey);
+    const transferResponse = await transferSigned.execute(client);
+    try {
+      await transferResponse.getReceipt(client); // wait for consensus
+    } catch (err: any) {
+      if (err?.status?._code === 184 || err?.message?.includes('TOKEN_NOT_ASSOCIATED')) {
+        const notAssociatedErr: any = new Error(
+          `Wallet ${walletAddress} has not associated with token ${process.env.HEDERA_NFT_TOKEN_ID}. Please associate the token first.`,
+        );
+        notAssociatedErr.code = 'TOKEN_NOT_ASSOCIATED';
+        notAssociatedErr.tokenId = process.env.HEDERA_NFT_TOKEN_ID;
+        throw notAssociatedErr;
+      }
+      throw err;
+    }
+
+    const txHash = transferResponse.transactionId.toString();
+    console.log(`✅ NFT transferred to ${walletAddress} — TX: ${txHash}`);
+
+    return {
+      txHash,
+      serialNumber,
+      tokenId: nftTokenId.toString(),
+      rewardId: reward.id,
+      rewardName: reward.name,
+      walletAddress,
     };
   }
 
@@ -887,4 +1038,4 @@ export class VoteService {
   }
 
 
-} 
+}

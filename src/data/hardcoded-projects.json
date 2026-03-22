@@ -18,5 +18,65 @@
     "estimatedRemovals": 1994507,
     "communityParticipation": "Operates on communal lands; community involvement + CSR tree planting campaigns",
     "biodiversityImpact": "Monarch corridor restoration; endangered Teporingo habitat; mixed species"
+  },
+  {
+    "uniqueId": "hardcoded-bay-watershed-002",
+    "projectName": "Bay Watershed Restoration Initiative",
+    "description": "Restore native vegetation and improve water quality across local river basins that feed into the San Francisco Bay.",
+    "projectTypes": "Watershed Protection",
+    "projectMethodology": "Water Stewardship",
+    "primarySector": "Water Conservation / Ecosystem Restoration",
+    "standards": {
+      "carbonStandard": "Water Stewardship"
+    },
+    "sdgIds": [6, 13, 15],
+    "status": "Active",
+    "latitude": 37.8716,
+    "longitude": -122.2727,
+    "projectPeriod": "2025-2035",
+    "projectArea": "2,800 hectares",
+    "estimatedRemovals": 0,
+    "communityParticipation": "Community volunteer watershed stewardship events",
+    "biodiversityImpact": "Native riparian vegetation restoration; improved aquatic habitat for salmon and steelhead"
+  },
+  {
+    "uniqueId": "hardcoded-urban-cooling-003",
+    "projectName": "Urban Cooling Tree Network",
+    "description": "Expand urban tree canopy across Bay Area neighborhoods to reduce heat, improve air quality, and support biodiversity.",
+    "projectTypes": "Reforestation",
+    "projectMethodology": "Urban Forestry",
+    "primarySector": "Urban Climate Resilience",
+    "standards": {
+      "carbonStandard": "Urban Forestry"
+    },
+    "sdgIds": [11, 13, 3],
+    "status": "Active",
+    "latitude": 37.7749,
+    "longitude": -122.4194,
+    "projectPeriod": "2025-2033",
+    "projectArea": "450 hectares",
+    "estimatedRemovals": 120000,
+    "communityParticipation": "Neighborhood tree planting days; partnerships with local schools and community organizations",
+    "biodiversityImpact": "Urban canopy expansion supporting pollinators, birds, and native understory plants"
+  },
+  {
+    "uniqueId": "hardcoded-coastal-habitat-004",
+    "projectName": "Coastal Habitat Recovery Program",
+    "description": "Restore native plants and habitats along the California coast to support pollinators, birds, and resilient coastal ecosystems.",
+    "projectTypes": "Mangrove Reforestation",
+    "projectMethodology": "Coastal / Blue Carbon",
+    "primarySector": "Biodiversity Restoration",
+    "standards": {
+      "carbonStandard": "Coastal / Blue Carbon"
+    },
+    "sdgIds": [14, 15, 13],
+    "status": "Active",
+    "latitude": 36.6177,
+    "longitude": -121.9166,
+    "projectPeriod": "2025-2040",
+    "projectArea": "1,200 hectares",
+    "estimatedRemovals": 340000,
+    "communityParticipation": "Coastal restoration volunteer programs; collaboration with local fishing communities",
+    "biodiversityImpact": "Restored coastal wetlands and dune habitats; critical refuge for shorebirds, sea otters, and native coastal flora"
   }
 ]
