@@ -56,13 +56,8 @@ export class SendEmailService {
     // Single source of truth for campaign URL
     const campaignUrl = `${frontendUrl}auth/signin/?campaignId=${campaignId}`;
 
-    // Generate Wickr QR code as inline base64 data URL (no external service needed)
-    const wickrUrl = process.env.WICKR_URL || 'https://wickr.com/naturebacker';
-    const qrCodeDataUrl = await QRCode.toDataURL(wickrUrl, {
-      width: 200,
-      margin: 2,
-      color: { dark: '#000000', light: '#ffffff' },
-    });
+    // Generate QR code URL via public API (email clients block base64 inline images)
+    const qrCodeDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(campaignUrl)}`;
 
     const sesClient = new SESClient({ 
       region: process.env.AWS_REGION || 'us-west-1',
@@ -105,9 +100,9 @@ export class SendEmailService {
               </p>
 
               <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
-                <p style="color: #555; font-size: 14px; margin-bottom: 4px; font-weight: bold;">Connect with us on Wickr</p>
-                <p style="color: #999; font-size: 12px; margin-bottom: 12px;">Scan to join our secure messaging channel</p>
-                <img src="${qrCodeDataUrl}" alt="Wickr QR Code" style="width: 200px; height: 200px; display: inline-block;" />
+                <p style="color: #555; font-size: 14px; margin-bottom: 4px; font-weight: bold;">Scan to view campaign</p>
+                <p style="color: #999; font-size: 12px; margin-bottom: 12px;">Use your phone camera to open the campaign link</p>
+                <img src="${qrCodeDataUrl}" alt="Campaign QR Code" style="width: 200px; height: 200px; display: inline-block;" />
               </div>
               
               <div style="text-align:center; margin-top:32px;">

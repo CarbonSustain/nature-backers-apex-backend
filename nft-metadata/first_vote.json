@@ -1,0 +1,12 @@
+{
+  "name": "First Vote",
+  "creator": "Nature Backers",
+  "description": "Cast your first blockchain-verified vote to unlock this badge.",
+  "image": "ipfs://bafkreihkxpl54r5gzvq7uk6etotxraubv6pjfx5ogjxra5fhe6ydyjmggq",
+  "type": "image/png",
+  "format": "HIP412@2.0.0",
+  "properties": {
+    "badge": "first-vote",
+    "points": 50
+  }
+}

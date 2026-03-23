@@ -851,27 +851,29 @@ export class VoteService {
 
     const nftTokenId = TokenId.fromString(process.env.HEDERA_NFT_TOKEN_ID);
 
-    // 5. Resolve badge image URL from env and use it as NFT metadata.
-    // Hedera HTS metadata is capped at 100 bytes.
-    // Storing the Spaces image URL directly lets wallets (HashScan, HashPack) render
-    // the badge image without needing a separate off-chain metadata file.
-    const BADGE_IMAGES: Record<string, string | undefined> = {
+    // 5. Resolve HIP-412 JSON metadata URL from env and store it as the NFT metadata.
+    // Hedera HTS metadata is capped at 100 bytes — store an IPFS URL pointing to
+    // a JSON file (hosted on IPFS via dweb.link gateway, which HashPack's CSP allows).
+    // The JSON follows HIP-412 and contains `name`, `description`, `image` (ipfs://CID).
+    // See nft-metadata/ in the repo for the JSON files to upload to Pinata/IPFS.
+    // Env vars must be: https://<JSON_CID>.ipfs.dweb.link  (≤100 bytes)
+    const BADGE_METADATA: Record<string, string | undefined> = {
       'first-vote':       process.env.NFT_BADGE_FIRST_VOTE,
       'project-pioneer':  process.env.NFT_BADGE_PROJECT_PIONEER,
       'globe-trotter':    process.env.NFT_BADGE_GLOBE_TROTTER,
     };
 
-    const imageUrl = BADGE_IMAGES[rewardId];
+    const imageUrl = BADGE_METADATA[rewardId];
     if (!imageUrl) {
-      throw new Error(`No badge image URL configured for reward "${rewardId}". Set NFT_BADGE_* env vars.`);
+      throw new Error(`No badge metadata URL configured for reward "${rewardId}". Set NFT_BADGE_* env vars.`);
     }
 
     const metadataBytes = Buffer.from(imageUrl, 'utf8');
     if (metadataBytes.length > 100) {
-      throw new Error(`Badge image URL exceeds 100-byte metadata limit (${metadataBytes.length} bytes): ${imageUrl}`);
+      throw new Error(`Badge metadata URL exceeds 100-byte HTS limit (${metadataBytes.length} bytes): ${imageUrl}`);
     }
 
-    console.log(`🖼️  NFT metadata image URL (${metadataBytes.length} bytes): ${imageUrl}`);
+    console.log(`🖼️  NFT metadata URL (${metadataBytes.length} bytes): ${imageUrl}`);
 
     console.log(`🎨 Minting NFT for reward "${reward.name}" to wallet ${walletAddress}`);
 

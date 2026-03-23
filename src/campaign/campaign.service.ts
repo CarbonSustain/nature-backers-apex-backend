@@ -19,6 +19,7 @@ export class CampaignService {
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
     },
   });
+  
 
   private bucketName = process.env.AWS_S3_BUCKET_NAME!;
 
@@ -32,10 +33,13 @@ export class CampaignService {
       Body: file.buffer,
       ContentType: file.mimetype,
     };
-
+    console.log("Upload params:", uploadParams);
+    console.log("aws ", this.bucketName, this.s3);
     await this.s3.send(new PutObjectCommand(uploadParams));
+  
 
     // Return CloudFront URL instead of direct S3 URL
+    console.log("CloudFront URL:", process.env.BACKEND_CLOUDFRONT_URL);
     return `${process.env.BACKEND_CLOUDFRONT_URL}${key}`;
   }
 

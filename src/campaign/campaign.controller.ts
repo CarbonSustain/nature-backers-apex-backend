@@ -129,6 +129,7 @@ export class CampaignController {
           message: 'Invalid departmentIds format. Expected format: "[1,2,3,4]"',
         });
       }
+      console.log("logging before aws")
       
       const imageUrl = await this.campaignService.uploadImageToS3(file);
       const campaign = await this.campaignService.createCampaign({

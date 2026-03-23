@@ -1,0 +1,12 @@
+{
+  "name": "Project Pioneer",
+  "creator": "Nature Backers",
+  "description": "Vote on 3 unique projects across campaigns.",
+  "image": "ipfs://bafkreic6kd6oewbe4gjtctkcul7svycvxaojpsacnxyllxl37l2dlskwqm",
+  "type": "image/png",
+  "format": "HIP412@2.0.0",
+  "properties": {
+    "badge": "project-pioneer",
+    "points": 100
+  }
+}

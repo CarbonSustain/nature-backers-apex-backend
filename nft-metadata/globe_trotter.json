@@ -1,0 +1,12 @@
+{
+  "name": "Globe Trotter",
+  "creator": "Nature Backers",
+  "description": "Vote on projects from 2 different geographic regions.",
+  "image": "ipfs://bafkreiayz76z22ookomceeguvqm2usfufc7jx4hf5vbstsnphbroyjvpxi",
+  "type": "image/png",
+  "format": "HIP412@2.0.0",
+  "properties": {
+    "badge": "globe-trotter",
+    "points": 150
+  }
+}
